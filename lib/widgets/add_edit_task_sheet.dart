@@ -6,7 +6,7 @@ class Task {
   final String id;
   final String title;
   final String description;
-  final String status; // 'pending' or 'completed'
+  final String status;
   final DateTime? dueDate;
 
   const Task({
@@ -34,10 +34,10 @@ class Task {
   }
 }
 
-// ─── Add / Edit Task Bottom Sheet ─────────────────────────────────────────────
+// ─── AddEditTaskSheet ─────────────────────────────────────────────────────────
 
 class AddEditTaskSheet extends StatefulWidget {
-  final Task? task;           // null = Add mode, non-null = Edit mode
+  final Task? task;
   final void Function(Task task) onSave;
 
   const AddEditTaskSheet({
@@ -46,7 +46,6 @@ class AddEditTaskSheet extends StatefulWidget {
     required this.onSave,
   });
 
-  /// Helper to open the sheet and await result
   static Future<void> show(
       BuildContext context, {
         Task? task,
@@ -72,7 +71,6 @@ class _AddEditTaskSheetState extends State<AddEditTaskSheet> {
   DateTime? _dueDate;
   bool _isSaving = false;
 
-  // Validation errors
   String? _titleError;
   String? _descError;
   String? _dueDateError;
@@ -97,7 +95,7 @@ class _AddEditTaskSheetState extends State<AddEditTaskSheet> {
     super.dispose();
   }
 
-  // ── Validation ──────────────────────────────────────────────────────────────
+  // ── Validation ─────────────────────────────────────────────────────────────
 
   bool _validate() {
     String? titleErr;
@@ -110,17 +108,27 @@ class _AddEditTaskSheetState extends State<AddEditTaskSheet> {
     if (title.isEmpty) {
       titleErr = 'Task title is required';
     } else if (title.length < 3) {
-      titleErr = 'Task title must be at least 3 characters';
+      titleErr = 'Title must be at least 3 characters';
     }
 
     if (desc.isEmpty) {
       descErr = 'Task description is required';
     } else if (desc.length < 10) {
-      descErr = 'Task description must be at least 10 characters';
+      descErr = 'Description must be at least 10 characters';
     }
 
     if (_dueDate == null) {
       dateErr = 'Due date is required';
+    } else {
+      // Improvement: due date must be strictly in the future (after today)
+      final today = DateTime(
+        DateTime.now().year,
+        DateTime.now().month,
+        DateTime.now().day,
+      );
+      if (!_dueDate!.isAfter(today)) {
+        dateErr = 'Due date must be a future date';
+      }
     }
 
     setState(() {
@@ -132,13 +140,12 @@ class _AddEditTaskSheetState extends State<AddEditTaskSheet> {
     return titleErr == null && descErr == null && dateErr == null;
   }
 
-  // ── Actions ─────────────────────────────────────────────────────────────────
+  // ── Save ───────────────────────────────────────────────────────────────────
 
   Future<void> _handleSave() async {
     if (!_validate()) return;
 
     setState(() => _isSaving = true);
-    await Future.delayed(const Duration(milliseconds: 400));
 
     final saved = Task(
       id: widget.task?.id ?? DateTime.now().millisecondsSinceEpoch.toString(),
@@ -148,8 +155,11 @@ class _AddEditTaskSheetState extends State<AddEditTaskSheet> {
       dueDate: _dueDate,
     );
 
+    // onSave is async (provider call + snackbar in HomeScreen)
+    await Future.microtask(() => widget.onSave(saved));
+
     if (mounted) {
-      widget.onSave(saved);
+      setState(() => _isSaving = false);
       Navigator.of(context).pop();
     }
   }
@@ -157,11 +167,16 @@ class _AddEditTaskSheetState extends State<AddEditTaskSheet> {
   void _handleCancel() => Navigator.of(context).pop();
 
   Future<void> _pickDate() async {
-    final now = DateTime.now();
+    // Improvement: firstDate is tomorrow — today is not a valid due date
+    final tomorrow = DateTime.now().add(const Duration(days: 1));
+    final initialDate = (_dueDate != null && _dueDate!.isAfter(tomorrow))
+        ? _dueDate!
+        : tomorrow;
+
     final picked = await showDatePicker(
       context: context,
-      initialDate: _dueDate ?? now.add(const Duration(days: 1)),
-      firstDate: now,
+      initialDate: initialDate,
+      firstDate: tomorrow, // prevents picking today or past dates
       lastDate: DateTime(2030),
       builder: (context, child) => Theme(
         data: Theme.of(context).copyWith(
@@ -173,6 +188,7 @@ class _AddEditTaskSheetState extends State<AddEditTaskSheet> {
         child: child!,
       ),
     );
+
     if (picked != null) {
       setState(() {
         _dueDate = picked;
@@ -189,7 +205,7 @@ class _AddEditTaskSheetState extends State<AddEditTaskSheet> {
     return '${months[date.month - 1]} ${date.day.toString().padLeft(2, '0')}, ${date.year}';
   }
 
-  // ── Build ────────────────────────────────────────────────────────────────────
+  // ── Build ──────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -200,7 +216,6 @@ class _AddEditTaskSheetState extends State<AddEditTaskSheet> {
         color: Colors.white,
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      // Let sheet resize with keyboard
       padding: EdgeInsets.only(bottom: bottomInset),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -210,7 +225,6 @@ class _AddEditTaskSheetState extends State<AddEditTaskSheet> {
             padding: const EdgeInsets.fromLTRB(24, 16, 12, 0),
             child: Row(
               children: [
-                // Drag handle centered above header
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -237,7 +251,6 @@ class _AddEditTaskSheetState extends State<AddEditTaskSheet> {
                     ],
                   ),
                 ),
-                // Close button
                 IconButton(
                   onPressed: _handleCancel,
                   icon: const Icon(Icons.close, color: Color(0xFF49454F)),
@@ -249,17 +262,15 @@ class _AddEditTaskSheetState extends State<AddEditTaskSheet> {
               ],
             ),
           ),
-
           const Divider(height: 24, color: Color(0xFFF0F0F0)),
 
-          // ── Scrollable Form ───────────────────────────────────────────────
+          // ── Form ──────────────────────────────────────────────────────────
           Flexible(
             child: SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // Task Title
                   _buildLabel('Task Title'),
                   const SizedBox(height: 8),
                   _buildTextField(
@@ -267,12 +278,13 @@ class _AddEditTaskSheetState extends State<AddEditTaskSheet> {
                     hint: 'Enter task title',
                     errorText: _titleError,
                     onChanged: (_) {
-                      if (_titleError != null) setState(() => _titleError = null);
+                      if (_titleError != null) {
+                        setState(() => _titleError = null);
+                      }
                     },
                   ),
                   const SizedBox(height: 20),
 
-                  // Task Description
                   _buildLabel('Task Description'),
                   const SizedBox(height: 8),
                   _buildTextField(
@@ -281,18 +293,18 @@ class _AddEditTaskSheetState extends State<AddEditTaskSheet> {
                     errorText: _descError,
                     maxLines: 4,
                     onChanged: (_) {
-                      if (_descError != null) setState(() => _descError = null);
+                      if (_descError != null) {
+                        setState(() => _descError = null);
+                      }
                     },
                   ),
                   const SizedBox(height: 20),
 
-                  // Task Status
                   _buildLabel('Task Status'),
                   const SizedBox(height: 8),
                   _buildStatusSelector(),
                   const SizedBox(height: 20),
 
-                  // Due Date
                   _buildLabel('Due Date'),
                   const SizedBox(height: 8),
                   _buildDatePicker(),
@@ -315,14 +327,13 @@ class _AddEditTaskSheetState extends State<AddEditTaskSheet> {
             ),
           ),
 
-          // ── Action Buttons ────────────────────────────────────────────────
+          // ── Actions ───────────────────────────────────────────────────────
           const Divider(height: 1, color: Color(0xFFF0F0F0)),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Save Button
                 SizedBox(
                   height: 52,
                   child: ElevatedButton(
@@ -332,8 +343,7 @@ class _AddEditTaskSheetState extends State<AddEditTaskSheet> {
                       disabledBackgroundColor: const Color(0xFFCAC4D0),
                       foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
+                          borderRadius: BorderRadius.circular(14)),
                       elevation: 0,
                     ),
                     child: _isSaving
@@ -355,23 +365,19 @@ class _AddEditTaskSheetState extends State<AddEditTaskSheet> {
                   ),
                 ),
                 const SizedBox(height: 10),
-
-                // Cancel Button
                 SizedBox(
                   height: 52,
                   child: OutlinedButton(
                     onPressed: _handleCancel,
                     style: OutlinedButton.styleFrom(
                       foregroundColor: const Color(0xFF6750A4),
-                      side: const BorderSide(color: Color(0xFF6750A4), width: 1.5),
+                      side: const BorderSide(
+                          color: Color(0xFF6750A4), width: 1.5),
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
+                          borderRadius: BorderRadius.circular(14)),
                     ),
-                    child: const Text(
-                      'Cancel',
-                      style: TextStyle(fontSize: 16),
-                    ),
+                    child: const Text('Cancel',
+                        style: TextStyle(fontSize: 16)),
                   ),
                 ),
               ],
@@ -382,7 +388,7 @@ class _AddEditTaskSheetState extends State<AddEditTaskSheet> {
     );
   }
 
-  // ── Helper Widgets ────────────────────────────────────────────────────────
+  // ── Helpers ───────────────────────────────────────────────────────────────
 
   Widget _buildLabel(String text) {
     return Text(
@@ -414,15 +420,18 @@ class _AddEditTaskSheetState extends State<AddEditTaskSheet> {
           style: const TextStyle(fontSize: 16, color: Color(0xFF1C1B1F)),
           decoration: InputDecoration(
             hintText: hint,
-            hintStyle: const TextStyle(color: Color(0xFF9E9E9E), fontSize: 16),
+            hintStyle: const TextStyle(
+                color: Color(0xFF9E9E9E), fontSize: 16),
             filled: true,
             fillColor: const Color(0xFFF7F2FA),
-            contentPadding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16, vertical: 14),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
               borderSide: BorderSide(
-                color: hasError ? const Color(0xFFEF4444) : Colors.transparent,
+                color: hasError
+                    ? const Color(0xFFEF4444)
+                    : Colors.transparent,
                 width: 1.5,
               ),
             ),
@@ -435,16 +444,6 @@ class _AddEditTaskSheetState extends State<AddEditTaskSheet> {
                 width: 1.5,
               ),
             ),
-            errorBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide:
-              const BorderSide(color: Color(0xFFEF4444), width: 1.5),
-            ),
-            focusedErrorBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide:
-              const BorderSide(color: Color(0xFFEF4444), width: 1.5),
-            ),
           ),
         ),
         if (hasError) ...[
@@ -453,7 +452,8 @@ class _AddEditTaskSheetState extends State<AddEditTaskSheet> {
             padding: const EdgeInsets.only(left: 4),
             child: Text(
               errorText,
-              style: const TextStyle(fontSize: 12, color: Color(0xFFEF4444)),
+              style: const TextStyle(
+                  fontSize: 12, color: Color(0xFFEF4444)),
             ),
           ),
         ],
@@ -467,10 +467,12 @@ class _AddEditTaskSheetState extends State<AddEditTaskSheet> {
         final isSelected = _status == s;
         final isPending = s == 'pending';
         final label = isPending ? 'Pending' : 'Completed';
-        final activeColor =
-        isPending ? const Color(0xFFFF9800) : const Color(0xFF4CAF50);
-        final activeBg =
-        isPending ? const Color(0xFFFFF3E0) : const Color(0xFFE8F5E9);
+        final activeColor = isPending
+            ? const Color(0xFFFF9800)
+            : const Color(0xFF4CAF50);
+        final activeBg = isPending
+            ? const Color(0xFFFFF3E0)
+            : const Color(0xFFE8F5E9);
 
         return Expanded(
           child: GestureDetector(
@@ -483,7 +485,8 @@ class _AddEditTaskSheetState extends State<AddEditTaskSheet> {
                 color: isSelected ? activeBg : const Color(0xFFF7F2FA),
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
-                  color: isSelected ? activeColor : Colors.transparent,
+                  color:
+                  isSelected ? activeColor : Colors.transparent,
                   width: 1.5,
                 ),
               ),
@@ -491,9 +494,13 @@ class _AddEditTaskSheetState extends State<AddEditTaskSheet> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Icon(
-                    isSelected ? Icons.check_circle : Icons.circle_outlined,
+                    isSelected
+                        ? Icons.check_circle
+                        : Icons.circle_outlined,
                     size: 16,
-                    color: isSelected ? activeColor : const Color(0xFF9E9E9E),
+                    color: isSelected
+                        ? activeColor
+                        : const Color(0xFF9E9E9E),
                   ),
                   const SizedBox(width: 6),
                   Text(
@@ -501,7 +508,9 @@ class _AddEditTaskSheetState extends State<AddEditTaskSheet> {
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w500,
-                      color: isSelected ? activeColor : const Color(0xFF9E9E9E),
+                      color: isSelected
+                          ? activeColor
+                          : const Color(0xFF9E9E9E),
                     ),
                   ),
                 ],
@@ -523,7 +532,9 @@ class _AddEditTaskSheetState extends State<AddEditTaskSheet> {
           color: const Color(0xFFF7F2FA),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: hasError ? const Color(0xFFEF4444) : Colors.transparent,
+            color: hasError
+                ? const Color(0xFFEF4444)
+                : Colors.transparent,
             width: 1.5,
           ),
         ),
@@ -538,7 +549,7 @@ class _AddEditTaskSheetState extends State<AddEditTaskSheet> {
             ),
             const SizedBox(width: 10),
             Text(
-              _dueDate != null ? _formatDate(_dueDate!) : 'Pick a date',
+              _dueDate != null ? _formatDate(_dueDate!) : 'Pick a future date',
               style: TextStyle(
                 fontSize: 16,
                 color: _dueDate != null

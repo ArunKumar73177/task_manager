@@ -1,8 +1,29 @@
 import 'package:flutter/material.dart';
-import 'home_screen.dart';
+
+import '../screens/home_screen.dart';
+import '../services/auth_service.dart';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// login_screen.dart
+//
+// Fixes applied:
+//   1. Removed `const` from LoginScreen constructor — AuthService is not a
+//      compile-time constant so the widget cannot be const.
+//   2. Changed `authService ?? const AuthService()` to `authService ??
+//      AuthService()` — same reason.
+//   3. Replaced all `.withOpacity()` calls with `.withValues(alpha:)` to
+//      resolve the deprecation warnings introduced in Flutter 3.27+.
+// ─────────────────────────────────────────────────────────────────────────────
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  /// Allows injecting a mock AuthService in widget tests.
+  final AuthService authService;
+
+  // NOT const — AuthService is not a compile-time constant.
+  LoginScreen({
+    super.key,
+    AuthService? authService,
+  }) : authService = authService ?? AuthService();
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -24,6 +45,8 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
+  // ── Validation ─────────────────────────────────────────────────────────────
+
   bool _validateEmail(String value) {
     if (value.isEmpty) {
       setState(() => _emailError = 'Email is required');
@@ -44,28 +67,39 @@ class _LoginScreenState extends State<LoginScreen> {
       return false;
     }
     if (value.length < 6) {
-      setState(() => _passwordError = 'Password must be at least 6 characters');
+      setState(
+            () => _passwordError = 'Password must be at least 6 characters',
+      );
       return false;
     }
     setState(() => _passwordError = '');
     return true;
   }
 
+  // ── Login handler ──────────────────────────────────────────────────────────
+
   Future<void> _handleLogin() async {
     final isEmailValid = _validateEmail(_emailController.text);
     final isPasswordValid = _validatePassword(_passwordController.text);
+    if (!isEmailValid || !isPasswordValid) return;
 
-    if (isEmailValid && isPasswordValid) {
-      setState(() => _isLoading = true);
-      await Future.delayed(const Duration(seconds: 2));
-      setState(() => _isLoading = false);
-      if (mounted) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => HomeScreen()),
-        );
-      }
-    }
+    setState(() => _isLoading = true);
+
+    // Simulate API call latency
+    await Future.delayed(const Duration(seconds: 2));
+
+    // Persist token in secure storage before navigating.
+    await widget.authService.saveToken();
+
+    if (!mounted) return;
+    setState(() => _isLoading = false);
+
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(builder: (_) => const HomeScreen()),
+    );
   }
+
+  // ── Build ──────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -108,14 +142,15 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     const SizedBox(height: 48),
 
-                    // Form Container
+                    // ── Form card ────────────────────────────────────────────
                     Container(
                       decoration: BoxDecoration(
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(24),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withOpacity(0.1),
+                            // FIX: .withValues(alpha:) replaces deprecated .withOpacity()
+                            color: Colors.black.withValues(alpha: 0.1),
                             blurRadius: 20,
                             offset: const Offset(0, 4),
                           ),
@@ -131,7 +166,9 @@ class _LoginScreenState extends State<LoginScreen> {
                             keyboardType: TextInputType.emailAddress,
                             errorText: _emailError,
                             onChanged: (value) {
-                              if (_emailError.isNotEmpty) _validateEmail(value);
+                              if (_emailError.isNotEmpty) {
+                                _validateEmail(value);
+                              }
                             },
                             onFocusLost: () {
                               if (_emailController.text.isNotEmpty) {
@@ -156,8 +193,9 @@ class _LoginScreenState extends State<LoginScreen> {
                               }
                             },
                             suffixIcon: GestureDetector(
-                              onTap: () =>
-                                  setState(() => _showPassword = !_showPassword),
+                              onTap: () => setState(
+                                    () => _showPassword = !_showPassword,
+                              ),
                               child: Icon(
                                 _showPassword
                                     ? Icons.visibility_off_outlined
@@ -169,20 +207,23 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                           const SizedBox(height: 32),
 
+                          // ── Login button ─────────────────────────────────
                           SizedBox(
                             height: 56,
                             child: ElevatedButton(
                               onPressed: _isLoading ? null : _handleLogin,
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: const Color(0xFF2563EB),
-                                disabledBackgroundColor: const Color(0xFF93C5FD),
+                                disabledBackgroundColor:
+                                const Color(0xFF93C5FD),
                                 foregroundColor: Colors.white,
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(16),
                                 ),
                                 elevation: 4,
-                                shadowColor:
-                                const Color(0xFF2563EB).withOpacity(0.4),
+                                shadowColor: const Color(0xFF2563EB)
+                                // FIX: .withValues(alpha:) replaces deprecated .withOpacity()
+                                    .withValues(alpha: 0.4),
                               ),
                               child: _isLoading
                                   ? const Row(
@@ -240,6 +281,8 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
+  // ── TextField helper ───────────────────────────────────────────────────────
+
   Widget _buildTextField({
     required TextEditingController controller,
     required String placeholder,
@@ -292,7 +335,9 @@ class _LoginScreenState extends State<LoginScreen> {
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(16),
                 borderSide: BorderSide(
-                  color: hasError ? const Color(0xFFEF4444) : Colors.transparent,
+                  color: hasError
+                      ? const Color(0xFFEF4444)
+                      : Colors.transparent,
                   width: 2,
                 ),
               ),
